@@ -95,7 +95,7 @@ Private Function SafeGet(rs As Object, index As Long) As String
     If rs.EOF Then GoTo HATA
 
     If IsNull(rs(index)) Or rs(index) = "" Then
-        SafeGet = "BULUNAMADI"
+        SafeGet = ""
     Else
         SafeGet = CStr(rs(index))
     End If
@@ -103,7 +103,7 @@ Private Function SafeGet(rs As Object, index As Long) As String
     Exit Function
 
 HATA:
-    SafeGet = "BULUNAMADI"
+    SafeGet = ""
 End Function
 
 '==============================================================================
@@ -227,7 +227,7 @@ Sub stokMalzeme_ics_kapalidan_alX()
     satirSayaci = 1
 
     Do Until rs.EOF
-        If SafeGet(rs, 1) <> "BULUNAMADI" Then
+        If SafeGet(rs, 1) <> "" Then
             wsHedef.Cells(satirSayaci, 1).Value = SafeGet(rs, 0)  ' ZIMMET NO
             wsHedef.Cells(satirSayaci, 2).Value = SafeGet(rs, 1)  ' AD SOYAD
             wsHedef.Cells(satirSayaci, 3).Value = SafeGet(rs, 2)  ' TC
@@ -269,7 +269,7 @@ CihazSorgusu:
     satirSayaci = sonSatir + 1
 
     Do Until rs.EOF
-        If SafeGet(rs, 1) <> "BULUNAMADI" Then
+        If SafeGet(rs, 1) <> "" Then
             wsHedef.Cells(satirSayaci, 1).Value = SafeGet(rs, 0)  ' ZIMMET NO
             wsHedef.Cells(satirSayaci, 2).Value = SafeGet(rs, 1)  ' AD SOYAD
             wsHedef.Cells(satirSayaci, 3).Value = SafeGet(rs, 2)  ' TC
