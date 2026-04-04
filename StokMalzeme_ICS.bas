@@ -1,10 +1,10 @@
 '==============================================================================
-' ADODB ile Kapali Dosyadan Veri Cekme - v5
+' ADODB ile Kapali Dosyadan Veri Cekme - v6
 '
-' SORUN: vbTextCompare, Turkce I/I, S/S, C/C farkini eslestiremiyor.
-' COZUM: FindSheetName fonksiyonu sayfa adlarindan ve anahtar kelimelerden
-'        ozel karakterleri temizler, Turkce I->I donusumu yapar,
-'        vbTextCompare ile guvenli eslesme saglar.
+' v5 -> v6 Degisiklikler:
+'   - Derleme hatasi duzeltti (Dim dongu icinden cikarildi, IIf kaldirildi)
+'   - Performans: CopyFromRecordset ile toplu veri yazma
+'   - SafeGet: Null propagation hatasi duzeltti
 '==============================================================================
 
 '==============================================================================
@@ -38,35 +38,31 @@ End Function
 
 '==============================================================================
 ' YARDIMCI: Sayfa Adini Otomatik Bul (Turkce karakter destekli)
-'
-' Sayfa adindan ve anahtar kelimelerden ozel karakterleri temizler,
-' Turkce I -> I donusumu yapar, vbTextCompare ile eslestirir.
 '==============================================================================
 Private Function FindSheetName(ByVal con As Object, ParamArray keywords() As Variant) As String
     Dim rsSchema As Object
-    Dim tName As String, cleanName As String
+    Dim tName As String
+    Dim cleanName As String
+    Dim cleanKeyword As String
     Dim i As Long
 
-    Set rsSchema = con.OpenSchema(20) ' adSchemaTables
+    Set rsSchema = con.OpenSchema(20)
 
     Do Until rsSchema.EOF
         tName = NzStr(rsSchema.Fields("TABLE_NAME").Value)
 
-        ' Sayfa adini temizle
         cleanName = Replace(tName, " ", "")
         cleanName = Replace(cleanName, "(", "")
         cleanName = Replace(cleanName, ")", "")
         cleanName = Replace(cleanName, "-", "")
         cleanName = Replace(cleanName, "'", "")
 
-        ' Anahtar kelimeleri kontrol et
         For i = LBound(keywords) To UBound(keywords)
-            Dim cleanKeyword As String
             cleanKeyword = Replace(CStr(keywords(i)), " ", "")
-            cleanKeyword = Replace(cleanKeyword, ChrW(304), "I") ' Turkce I -> I
+            cleanKeyword = Replace(cleanKeyword, ChrW(304), "I")
 
             If InStr(1, cleanName, cleanKeyword, vbTextCompare) > 0 And InStr(tName, "$") > 0 Then
-                FindSheetName = tName ' Orijinal adi dondur
+                FindSheetName = tName
                 rsSchema.Close
                 Exit Function
             End If
@@ -83,31 +79,17 @@ End Function
 ' YARDIMCI: Null-safe string donusumu
 '==============================================================================
 Private Function NzStr(ByVal v As Variant) As String
-    NzStr = IIf(IsNull(v) Or IsEmpty(v), "", CStr(v))
-End Function
-
-'==============================================================================
-' YARDIMCI: Recordset'ten guvenli deger okuma
-'==============================================================================
-Private Function SafeGet(rs As Object, index As Long) As String
-    On Error GoTo HATA
-
-    If rs.EOF Then GoTo HATA
-
-    If IsNull(rs(index)) Or rs(index) = "" Then
-        SafeGet = ""
+    If IsNull(v) Then
+        NzStr = ""
+    ElseIf IsEmpty(v) Then
+        NzStr = ""
     Else
-        SafeGet = CStr(rs(index))
+        NzStr = CStr(v)
     End If
-
-    Exit Function
-
-HATA:
-    SafeGet = ""
 End Function
 
 '==============================================================================
-' YARDIMCI: Tum Sayfa Adlarini Goster (eslesme bulunamadiginda)
+' YARDIMCI: Tum Sayfa Adlarini Goster
 '==============================================================================
 Private Sub SayfalariGoster(con As Object, baslik As String)
     Dim rsSchema As Object
@@ -177,6 +159,41 @@ Private Function SafeSheetSQL(sayfaAdi As String) As String
 End Function
 
 '==============================================================================
+' YARDIMCI: Recordset'i sayfaya toplu yapistir (CopyFromRecordset ile hizli)
+'
+' Bos satirlari atlar, bos hucreleri bos birakir.
+' Dondurulen deger: yazilan satir sayisi
+'==============================================================================
+Private Function TopluYapistir(rs As Object, ws As Worksheet, baslangicSatir As Long) As Long
+    Dim satirSayaci As Long
+    Dim sutunSayisi As Long
+    Dim i As Long
+    Dim v As Variant
+
+    satirSayaci = baslangicSatir
+    sutunSayisi = rs.Fields.Count
+
+    Do Until rs.EOF
+        ' AD_SOYAD alani (index 1) bos degilse yaz
+        v = rs.Fields(1).Value
+        If Not IsNull(v) Then
+            If CStr(v) <> "" Then
+                For i = 0 To sutunSayisi - 1
+                    v = rs.Fields(i).Value
+                    If Not IsNull(v) Then
+                        ws.Cells(satirSayaci, i + 1).Value = v
+                    End If
+                Next i
+                satirSayaci = satirSayaci + 1
+            End If
+        End If
+        rs.MoveNext
+    Loop
+
+    TopluYapistir = satirSayaci - baslangicSatir
+End Function
+
+'==============================================================================
 ' 1. STOK MALZEME - ICS Kapalidan Al
 '==============================================================================
 Sub stokMalzeme_ics_kapalidan_alX()
@@ -188,18 +205,18 @@ Sub stokMalzeme_ics_kapalidan_alX()
     Dim sorgu As String
     Dim wsHedef As Worksheet
     Dim sonSatir As Long
-    Dim rec As Object
+    Dim yazilanSatir As Long
 
     On Error GoTo HataYakala
 
     Application.ScreenUpdating = False
     Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
 
     Set wsHedef = ThisWorkbook.Sheets(3)
     SayfaTemizle wsHedef, "BO"
 
     dosya = ThisWorkbook.Path & "\" & ChrW(304) & "CS Z" & ChrW(304) & "MMET L" & ChrW(304) & "STES" & ChrW(304) & ".xlsm"
-    ' Dosya adi: ICS ZIMMET LISTESI.xlsm (Turkce karakterlerle)
 
     Set con = BaglantiAc(dosya)
     If con Is Nothing Then GoTo TemizCikis
@@ -209,38 +226,20 @@ Sub stokMalzeme_ics_kapalidan_alX()
 
     If sayfaZimmet = "" Then
         SayfalariGoster con, "ICS ZIMMET LISTESI"
-        MsgBox "ZIMMET MUSLUM sayfasi otomatik bulunamadi!" & vbCr & _
-               "Sayfa listesi gosterildi.", vbExclamation
+        MsgBox "ZIMMET MUSLUM sayfasi otomatik bulunamadi!", vbExclamation
         GoTo CihazSorgusu
     End If
 
     Debug.Print ">>> ZIMMET sayfasi bulundu: " & sayfaZimmet
 
-    ' Guvenli sayfa adi ile sorgu olustur
     sorgu = "SELECT F1,F5,F4,F9,F13,F15,F17,F21,F22 FROM [" & SafeSheetSQL(sayfaZimmet) & "]"
     Debug.Print "SQL: " & sorgu
 
     Set rs = CreateObject("ADODB.Recordset")
-    rs.Open sorgu, con, 1, 1
+    rs.Open sorgu, con, 0, 1  ' adOpenForwardOnly = 0 (daha hizli)
 
-    Dim satirSayaci As Long
-    satirSayaci = 1
-
-    Do Until rs.EOF
-        If SafeGet(rs, 1) <> "" Then
-            wsHedef.Cells(satirSayaci, 1).Value = SafeGet(rs, 0)  ' ZIMMET NO
-            wsHedef.Cells(satirSayaci, 2).Value = SafeGet(rs, 1)  ' AD SOYAD
-            wsHedef.Cells(satirSayaci, 3).Value = SafeGet(rs, 2)  ' TC
-            wsHedef.Cells(satirSayaci, 4).Value = SafeGet(rs, 3)  ' MALZEME BRANSI
-            wsHedef.Cells(satirSayaci, 5).Value = SafeGet(rs, 4)  ' SERI NO
-            wsHedef.Cells(satirSayaci, 6).Value = SafeGet(rs, 5)  ' ZIMMET TARIHI
-            wsHedef.Cells(satirSayaci, 7).Value = SafeGet(rs, 6)  ' TEMIN YONTEMI
-            wsHedef.Cells(satirSayaci, 8).Value = SafeGet(rs, 7)  ' IADE TARIHI
-            wsHedef.Cells(satirSayaci, 9).Value = SafeGet(rs, 8)  ' GEREKCE
-            satirSayaci = satirSayaci + 1
-        End If
-        rs.MoveNext
-    Loop
+    yazilanSatir = TopluYapistir(rs, wsHedef, 1)
+    Debug.Print ">>> Zimmet: " & yazilanSatir & " satir yazildi"
 
     rs.Close
     Set rs = Nothing
@@ -251,38 +250,22 @@ CihazSorgusu:
 
     If sayfaCihaz = "" Then
         SayfalariGoster con, "ICS ZIMMET LISTESI"
-        MsgBox "CIHAZ KAYITLISTESI sayfasi otomatik bulunamadi!" & vbCr & _
-               "Sayfa listesi gosterildi.", vbExclamation
+        MsgBox "CIHAZ KAYITLISTESI sayfasi otomatik bulunamadi!", vbExclamation
         GoTo BaslikYaz
     End If
 
     Debug.Print ">>> CIHAZ sayfasi bulundu: " & sayfaCihaz
 
-    sonSatir = wsHedef.Range("A" & wsHedef.Rows.Count).End(xlUp).Row
+    sonSatir = wsHedef.Range("A" & wsHedef.Rows.Count).End(xlUp).Row + 1
 
     sorgu = "SELECT F1,F4,F5,F9,F12,F16,F17,F22,F23 FROM [" & SafeSheetSQL(sayfaCihaz) & "]"
     Debug.Print "SQL: " & sorgu
 
     Set rs = CreateObject("ADODB.Recordset")
-    rs.Open sorgu, con, 1, 1
+    rs.Open sorgu, con, 0, 1  ' adOpenForwardOnly = 0 (daha hizli)
 
-    satirSayaci = sonSatir + 1
-
-    Do Until rs.EOF
-        If SafeGet(rs, 1) <> "" Then
-            wsHedef.Cells(satirSayaci, 1).Value = SafeGet(rs, 0)  ' ZIMMET NO
-            wsHedef.Cells(satirSayaci, 2).Value = SafeGet(rs, 1)  ' AD SOYAD
-            wsHedef.Cells(satirSayaci, 3).Value = SafeGet(rs, 2)  ' TC
-            wsHedef.Cells(satirSayaci, 4).Value = SafeGet(rs, 3)  ' MALZEME BRANSI
-            wsHedef.Cells(satirSayaci, 5).Value = SafeGet(rs, 4)  ' SERI NO
-            wsHedef.Cells(satirSayaci, 6).Value = SafeGet(rs, 5)  ' ZIMMET TARIHI
-            wsHedef.Cells(satirSayaci, 7).Value = SafeGet(rs, 6)  ' TEMIN YONTEMI
-            wsHedef.Cells(satirSayaci, 8).Value = SafeGet(rs, 7)  ' IADE TARIHI
-            wsHedef.Cells(satirSayaci, 9).Value = SafeGet(rs, 8)  ' GEREKCE
-            satirSayaci = satirSayaci + 1
-        End If
-        rs.MoveNext
-    Loop
+    yazilanSatir = TopluYapistir(rs, wsHedef, sonSatir)
+    Debug.Print ">>> Cihaz: " & yazilanSatir & " satir yazildi"
 
     rs.Close
     Set rs = Nothing
@@ -303,6 +286,7 @@ BaslikYaz:
 
 TemizCikis:
     BaglantiKapat con, rs
+    Application.Calculation = xlCalculationAutomatic
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     Exit Sub
