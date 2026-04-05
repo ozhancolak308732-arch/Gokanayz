@@ -1,17 +1,11 @@
 '==============================================================================
 ' Mernis Chrome Otomasyon Modulu - Optimize Edilmis Versiyon
-'
-' Degisiklikler:
-'   - Ortak kod helper fonksiyonlara cikarildi (ChromeBaslat, KPSGirisYap, vb.)
-'   - Syntax hatasi duzeltildi (document.querySelector -> .jsEval)
-'   - Degisken tanimlama hatalari duzeltildi (her biri As String)
-'   - B19/B4 ters mantik duzeltildi
-'   - GoTo spaghetti kaldirildi, yapisal akis saglandi
-'   - Gereksiz yorumlar temizlendi
-'   - On Error Resume Next daraltildi
 '==============================================================================
 
 Option Explicit
+
+' Modul seviyesinde chrome nesnesi - tum Sub/Function'lardan erisilebilir
+Private chrome As New clsBrowser
 
 Private Const KPS_LOGIN_URL As String = "https://kps.sgk.intra/KPS/Login.aspx"
 Private Const KPS_SORGU_URL As String = "https://kps.sgk.intra/KPS/TCKNodanSorgula.aspx"
@@ -22,8 +16,7 @@ Private Const WAIT_LONG As String = "0:00:03"
 ' YARDIMCI: Chrome baslatip KPS'ye giris yap
 ' Basarili ise True dondurur
 '==============================================================================
-Private Function ChromeBaslatVeGirisYap(chrome As clsBrowser, _
-                                         kullaniciAdi As String, _
+Private Function ChromeBaslatVeGirisYap(kullaniciAdi As String, _
                                          sifre As String) As Boolean
     Dim jscd As String
 
@@ -43,7 +36,7 @@ Private Function ChromeBaslatVeGirisYap(chrome As clsBrowser, _
     chrome.wait
 
     ' SSL sertifika uyarisini gec
-    SSLUyarisiGec chrome
+    SSLUyarisiGec
 
     ' Giris yap
     jscd = "document.getElementsByName('txtUser')[0].value = '" & kullaniciAdi & "';" & _
@@ -65,7 +58,7 @@ End Function
 '==============================================================================
 ' YARDIMCI: SSL sertifika uyarisini gec
 '==============================================================================
-Private Sub SSLUyarisiGec(chrome As clsBrowser)
+Private Sub SSLUyarisiGec()
     Dim basla As Single
     basla = Timer
     Do While (Timer - basla) < 1: Loop
@@ -80,10 +73,8 @@ End Sub
 
 '==============================================================================
 ' YARDIMCI: TC Kimlik No ile sorgu yap
-' hataMesaji parametresine hata dondurur (bos ise basarili)
 '==============================================================================
-Private Function TCKNSorgula(chrome As clsBrowser, _
-                              tcKimlikNo As String) As String
+Private Function TCKNSorgula(tcKimlikNo As String) As String
     Dim jscd As String
 
     jscd = "document.getElementsByName('ctl00$MainContent$txtbox_TCKNo')[0].value = '" & tcKimlikNo & "';" & _
@@ -99,7 +90,7 @@ End Function
 '==============================================================================
 ' YARDIMCI: Yabanci kimlik ile sorgu yap (TC 99 ile basliyorsa)
 '==============================================================================
-Private Sub YabanciKimlikSorgula(chrome As clsBrowser, yabanciNo As String)
+Private Sub YabanciKimlikSorgula(yabanciNo As String)
     Dim jscd As String
 
     chrome.jsEval "document.querySelector('#navigationSol > li:nth-child(4) > a').click()"
@@ -116,8 +107,7 @@ End Sub
 '==============================================================================
 ' YARDIMCI: Kisi bilgilerini sayfadan oku (ByRef ile dondurur)
 '==============================================================================
-Private Sub KisiBilgileriniOku(chrome As clsBrowser, _
-                                dogumOlumAlsinMi As Boolean, _
+Private Sub KisiBilgileriniOku(dogumOlumAlsinMi As Boolean, _
                                 ByRef outAd As String, _
                                 ByRef outSoyad As String, _
                                 ByRef outTC As String, _
@@ -149,7 +139,7 @@ End Sub
 '==============================================================================
 ' YARDIMCI: "Kayit Bulunamadi" kontrolu
 '==============================================================================
-Private Function KayitBulunamadiMi(chrome As clsBrowser) As String
+Private Function KayitBulunamadiMi() As String
     Dim jscd As String
     Dim sonuc As String
 
@@ -185,7 +175,6 @@ End Function
 ' 1. MERNIS ADRES AL - Chrome
 '==============================================================================
 Sub MernisAdresAl_Chrome()
-    Dim chrome As New clsBrowser
     Dim hataMesaji As String
     Dim tcNo As String
     Dim kayitHata As String
@@ -201,11 +190,10 @@ Sub MernisAdresAl_Chrome()
     If tcNo = "" Then Exit Sub
 
     ' Chrome baslat ve giris yap (basarisizsa tekrar dene)
-    If Not ChromeBaslatVeGirisYap(chrome, _
+    If Not ChromeBaslatVeGirisYap( _
             Trim(UserForm1.txtkullanici_adi.Text), _
             Trim(UserForm1.txtSifre.Text)) Then
-        ' Tekrar dene
-        If Not ChromeBaslatVeGirisYap(chrome, _
+        If Not ChromeBaslatVeGirisYap( _
                 Trim(UserForm1.txtkullanici_adi.Text), _
                 Trim(UserForm1.txtSifre.Text)) Then
             MsgBox "Chrome baslatilamadi!", vbExclamation, "Coder By Ozhan COLAK"
@@ -214,7 +202,7 @@ Sub MernisAdresAl_Chrome()
     End If
 
     ' TC sorgusu yap
-    hataMesaji = TCKNSorgula(chrome, tcNo)
+    hataMesaji = TCKNSorgula(tcNo)
 
     ' Hata varsa (HATA <> "1" demek hata var)
     If hataMesaji <> "1" Then
@@ -223,8 +211,8 @@ Sub MernisAdresAl_Chrome()
 
         ' Yabanci uyruklu kontrolu (TC 99 ile basliyorsa)
         If Left(tcNo, 2) = "99" Then
-            YabanciKimlikSorgula chrome, tcNo
-            KisiBilgileriniOku chrome, False, ad, soyad, tc, adres, dogTar, olumTar
+            YabanciKimlikSorgula tcNo
+            KisiBilgileriniOku False, ad, soyad, tc, adres, dogTar, olumTar
             GoTo FormaYaz
         End If
 
@@ -236,7 +224,7 @@ Sub MernisAdresAl_Chrome()
     End If
 
     Application.Wait Now + TimeValue(WAIT_SHORT)
-    KisiBilgileriniOku chrome, False, ad, soyad, tc, adres, dogTar, olumTar
+    KisiBilgileriniOku False, ad, soyad, tc, adres, dogTar, olumTar
 
 FormaYaz:
     ' Sonuclari forma ve sayfaya yaz
@@ -248,10 +236,9 @@ FormaYaz:
     Sayfa8.Range("L7").Value = adres
 
     ' Kayit bulunamadi kontrolu
-    kayitHata = KayitBulunamadiMi(chrome)
+    kayitHata = KayitBulunamadiMi()
     If kayitHata <> "" Then
         If Left(UserForm1.TextBox1.Value, 2) = "99" Then
-            ' Yabanci uyruklu icin ek navigasyon
             chrome.jsEval "document.querySelector('#navigationSol > li:nth-child(4) > a').click()"
         End If
         UserForm1.TextBox3.Text = kayitHata
@@ -262,7 +249,6 @@ End Sub
 ' 2. MERNIS HASTA DOGUM/OLUM TARIHI AL - Chrome
 '==============================================================================
 Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
-    Dim chrome As New clsBrowser
     Dim hataMesaji As String
     Dim tcNo As String
     Dim kayitHata As String
@@ -289,13 +275,13 @@ Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
     End If
 
     ' Chrome baslat ve giris yap
-    If Not ChromeBaslatVeGirisYap(chrome, kullaniciAdi, Trim(sifre)) Then
+    If Not ChromeBaslatVeGirisYap(kullaniciAdi, Trim(sifre)) Then
         MsgBox "Chrome baslatilamadi!", vbExclamation, "Coder By Ozhan COLAK"
         Exit Sub
     End If
 
     ' TC sorgusu yap
-    hataMesaji = TCKNSorgula(chrome, tcNo)
+    hataMesaji = TCKNSorgula(tcNo)
 
     ' Hata varsa
     If hataMesaji <> "1" Then
@@ -304,8 +290,8 @@ Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
 
         ' Yabanci uyruklu kontrolu
         If Left(UserForm1.TextBox1.Value, 2) = "99" Then
-            YabanciKimlikSorgula chrome, UserForm1.TextBox1.Value
-            KisiBilgileriniOku chrome, True, ad, soyad, tc, adres, dogTar, olumTar
+            YabanciKimlikSorgula UserForm1.TextBox1.Value
+            KisiBilgileriniOku True, ad, soyad, tc, adres, dogTar, olumTar
             GoTo FormaYaz
         End If
 
@@ -316,7 +302,7 @@ Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
     End If
 
     Application.Wait Now + TimeValue(WAIT_SHORT)
-    KisiBilgileriniOku chrome, True, ad, soyad, tc, adres, dogTar, olumTar
+    KisiBilgileriniOku True, ad, soyad, tc, adres, dogTar, olumTar
 
 FormaYaz:
     ' Formu temizle
@@ -339,7 +325,7 @@ FormaYaz:
     Application.EnableEvents = True
 
     ' Kayit bulunamadi kontrolu
-    kayitHata = KayitBulunamadiMi(chrome)
+    kayitHata = KayitBulunamadiMi()
     If kayitHata <> "" Then
         If Left(UserForm1.TextBox1.Value, 2) = "99" Then
             chrome.jsEval "document.querySelector('#MainContent_chkbox_AdresBilgisi').click()"
