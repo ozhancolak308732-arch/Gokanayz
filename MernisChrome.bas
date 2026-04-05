@@ -1,13 +1,9 @@
 '==============================================================================
-' Mernis Chrome Otomasyon Modulu - Optimize Edilmis Versiyon
+' Mernis Chrome Otomasyon Modulu
+' clsMernisKPS class module'unu kullanir
 '==============================================================================
 
 Option Explicit
-
-Private Const KPS_LOGIN_URL As String = "https://kps.sgk.intra/KPS/Login.aspx"
-Private Const KPS_SORGU_URL As String = "https://kps.sgk.intra/KPS/TCKNodanSorgula.aspx"
-Private Const WAIT_SHORT As String = "0:00:01"
-Private Const WAIT_LONG As String = "0:00:03"
 
 '==============================================================================
 ' YARDIMCI: Sorgulanacak TC Kimlik No'yu belirle
@@ -29,126 +25,66 @@ End Function
 '==============================================================================
 Sub MernisAdresAl_Chrome()
     Dim chrome As New clsBrowser
-    Dim jscd As String
+    Dim kps As New clsMernisKPS
     Dim hataMesaji As String
     Dim tcNo As String
     Dim kayitHata As String
-    Dim ad As String
-    Dim soyad As String
-    Dim tc As String
-    Dim adres As String
-    Dim basla As Single
 
     ' TC No belirle
     tcNo = SorgulanacakTC(UserForm1.TextBox1.Value)
     If tcNo = "" Then Exit Sub
 
-On Error Resume Next
+    On Error Resume Next
+
+    Set kps.Browser = chrome
+
 1:
-    CreateObject("wscript.shell").Run "cmd /c """ & "taskkill /IM chrome.exe >nul""""", 0, True
+    ' Chrome baslat ve giris yap
+    If Not kps.BaslatVeGirisYap( _
+            UserForm1.txtkullanici_adi.Text, _
+            Trim(UserForm1.txtSifre.Text)) Then
+        GoTo 1
+    End If
 
-    With chrome
-        .minimized
-        .start cleanActiveSession:=True, userProfile:="User G"
+    ' TC sorgusu yap
+    hataMesaji = kps.TCKNSorgula(tcNo)
 
-        If .SessionID = "" Then GoTo 1
+    ' Hata varsa (hataMesaji <> "1" demek hata var)
+    If Not hataMesaji = "1" Then
+        kps.HataDialogKapat
 
-        ' KPS Login sayfasina git
-        .navigate KPS_LOGIN_URL
-        .wait
-
-        ' SSL sertifika uyarisini gec
-        basla = Timer: Do While (Timer - basla) < 1: Loop
-        .jsEval "document.querySelector('#details-button').click()"
-        .wait
-        .jsEval "document.querySelector('#proceed-link').click()"
-        .wait
-
-        ' Giris yap
-        jscd = "document.getElementsByName('txtUser')[0].value = '" & UserForm1.txtkullanici_adi.Text & "';" & _
-               "document.getElementsByName('txtPass')[0].value = '" & Trim(UserForm1.txtSifre.Text) & "';" & _
-               "document.getElementsByName('btnLogin')[0].click();"
-        .jsEval jscd
-        .wait
-
-        ' Sorgu sayfasina git
-        .navigate KPS_SORGU_URL
-        .wait
-
-        ' Adres bilgisi checkbox'ini tikla
-        .jsEval "document.querySelector('#MainContent_chkbox_AdresBilgisi').click()"
-
-        ' TC sorgusu yap
-        jscd = "document.getElementsByName('ctl00$MainContent$txtbox_TCKNo')[0].value = '" & tcNo & "';" & _
-               "document.getElementById('MainContent_ddlist_NkoTip')[0].value = '2';" & _
-               "document.getElementsByName('ctl00$MainContent$btn_Sorgula')[0].click();"
-        .jsEval jscd
-
-        Application.Wait Now + TimeValue(WAIT_LONG)
-
-        ' Hata kontrolu
-        hataMesaji = .jsEval("document.getElementById('uppnl_HataMesaj').innerText.trim()")
-
-        If Not hataMesaji = "1" Then
-            .jsEval "document.getElementsByTagName('button')[0].click()"
-            .wait
-
-            ' Yabanci uyruklu kontrolu (TC 99 ile basliyorsa)
-            If Left(tcNo, 2) = "99" Then
-                .jsEval "document.querySelector('#navigationSol > li:nth-child(4) > a').click()"
-                .wait
-                jscd = "document.getElementsByName('ctl00$MainContent$txtbox_YabanciKNo')[0].value = '" & tcNo & "';" & _
-                       "document.getElementById('MainContent_chkbox_AdresBilgisi').click();" & _
-                       "document.getElementsByName('ctl00$MainContent$btn_Sorgula')[0].click();"
-                .jsEval jscd
-                Application.Wait Now + TimeValue(WAIT_LONG)
-
-                ad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[1].innerText")
-                If ad = "" Then
-                    ad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-                Else
-                    soyad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-                End If
-                soyad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[3].innerText")
-                tc = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[0].innerText")
-                adres = .jsEval("document.getElementById('MainContent_lbl_AdresBilgi').getElementsByTagName('dl')[4].getElementsByTagName('dd')[0].innerText")
-                GoTo FormaYaz
-            End If
-
-            ' Normal hata - mesaji goster
-            UserForm1.TextBox1.Text = hataMesaji
-            GoTo HataGoster
+        ' Yabanci uyruklu kontrolu (TC 99 ile basliyorsa)
+        If Left(tcNo, 2) = "99" Then
+            kps.YabanciKimlikSorgula tcNo
+            kps.YabanciKisiBilgileriniOku False
+            GoTo FormaYaz
         End If
 
-        Application.Wait Now + TimeValue(WAIT_SHORT)
+        ' Normal hata - mesaji goster
+        UserForm1.TextBox1.Text = hataMesaji
+        GoTo HataGoster
+    End If
 
-        ' Kisi bilgilerini oku
-        ad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[1].innerText")
-        soyad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-        tc = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[0].innerText")
-        adres = .jsEval("document.getElementById('MainContent_lbl_AdresBilgi').getElementsByTagName('dl')[4].getElementsByTagName('dd')[0].innerText")
+    Application.Wait Now + TimeValue("0:00:01")
+    kps.KisiBilgileriniOku False
 
 FormaYaz:
-        ' Sonuclari forma ve sayfaya yaz
-        UserForm1.TextBox1.Text = tc
-        Sayfa8.Range("L6").Value = tc
-        UserForm1.TextBox2.Text = ad & Chr(32) & soyad
-        Sayfa8.Range("L5").Value = ad & Chr(32) & soyad
-        UserForm1.TextBox3.Text = adres
-        Sayfa8.Range("L7").Value = adres
+    ' Sonuclari forma ve sayfaya yaz
+    UserForm1.TextBox1.Text = kps.TC
+    Sayfa8.Range("L6").Value = kps.TC
+    UserForm1.TextBox2.Text = kps.Ad & Chr(32) & kps.Soyad
+    Sayfa8.Range("L5").Value = kps.Ad & Chr(32) & kps.Soyad
+    UserForm1.TextBox3.Text = kps.Adres
+    Sayfa8.Range("L7").Value = kps.Adres
 
-        ' Kayit bulunamadi kontrolu
-        jscd = "document.evaluate(""//span[contains(., 'Kayit Bulunamadi.')]"", document).iterateNext().innerText"
-        kayitHata = .jsEval(jscd)
-        .wait
-        If kayitHata Like "*Kayit Bulunamadi.*" Then
-            If Left(UserForm1.TextBox1.Value, 2) = "99" Then
-                .jsEval "document.querySelector('#navigationSol > li:nth-child(4) > a').click()"
-            End If
-            UserForm1.TextBox3.Text = kayitHata
+    ' Kayit bulunamadi kontrolu
+    kayitHata = kps.KayitBulunamadiMi()
+    If kayitHata <> "" Then
+        If Left(UserForm1.TextBox1.Value, 2) = "99" Then
+            kps.YabanciNavigasyonTikla
         End If
-
-    End With
+        UserForm1.TextBox3.Text = kayitHata
+    End If
     Exit Sub
 
 HataGoster:
@@ -161,19 +97,12 @@ End Sub
 '==============================================================================
 Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
     Dim chrome As New clsBrowser
-    Dim jscd As String
+    Dim kps As New clsMernisKPS
     Dim hataMesaji As String
     Dim tcNo As String
     Dim kayitHata As String
     Dim kullaniciAdi As String
     Dim sifre As String
-    Dim ad As String
-    Dim soyad As String
-    Dim tc As String
-    Dim adres As String
-    Dim dogTar As String
-    Dim olumTar As String
-    Dim basla As Single
 
     ' TC No belirle (sadece B4'ten)
     If Sheet1.Range("B4").Value = "" Then Exit Sub
@@ -188,125 +117,66 @@ Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
         sifre = CStr(Range("AY1").Value)
     End If
 
-On Error Resume Next
-    CreateObject("wscript.shell").Run "cmd /c """ & "taskkill /IM chrome.exe >nul""""", 0, True
+    On Error Resume Next
 
-    With chrome
-        .minimized
-        .start cleanActiveSession:=True, userProfile:="User G"
+    Set kps.Browser = chrome
 
-        ' KPS Login sayfasina git
-        .navigate KPS_LOGIN_URL
-        .wait
+    ' Chrome baslat ve giris yap
+    If Not kps.BaslatVeGirisYap(kullaniciAdi, Trim(sifre)) Then
+        MsgBox "Chrome baslatilamadi!", vbExclamation, "Coder By Ozhan COLAK"
+        Exit Sub
+    End If
 
-        ' SSL sertifika uyarisini gec
-        basla = Timer: Do While (Timer - basla) < 1: Loop
-        .jsEval "document.querySelector('#details-button').click()"
-        .wait
-        .jsEval "document.querySelector('#proceed-link').click()"
-        .wait
+    ' TC sorgusu yap
+    hataMesaji = kps.TCKNSorgula(tcNo)
 
-        ' Giris yap
-        jscd = "document.getElementsByName('txtUser')[0].value = '" & kullaniciAdi & "';" & _
-               "document.getElementsByName('txtPass')[0].value = '" & Trim(sifre) & "';" & _
-               "document.getElementsByName('btnLogin')[0].click();"
-        .jsEval jscd
-        .wait
+    ' Hata varsa
+    If Not hataMesaji = "1" Then
+        kps.HataDialogKapat
 
-        ' Sorgu sayfasina git
-        .navigate KPS_SORGU_URL
-        .wait
-
-        ' Adres bilgisi checkbox'ini tikla
-        .jsEval "document.querySelector('#MainContent_chkbox_AdresBilgisi').click()"
-
-        ' TC sorgusu yap
-        jscd = "document.getElementsByName('ctl00$MainContent$txtbox_TCKNo')[0].value = '" & tcNo & "';" & _
-               "document.getElementById('MainContent_ddlist_NkoTip')[0].value = '2';" & _
-               "document.getElementsByName('ctl00$MainContent$btn_Sorgula')[0].click();"
-        .jsEval jscd
-
-        Application.Wait Now + TimeValue(WAIT_LONG)
-
-        ' Hata kontrolu
-        hataMesaji = .jsEval("document.getElementById('uppnl_HataMesaj').innerText.trim()")
-
-        If Not hataMesaji = "1" Then
-            .jsEval "document.getElementsByTagName('button')[0].click()"
-            .wait
-
-            ' Yabanci uyruklu kontrolu (TC 99 ile basliyorsa)
-            If Left(UserForm1.TextBox1.Value, 2) = "99" Then
-                .jsEval "document.querySelector('#navigationSol > li:nth-child(4) > a').click()"
-                .wait
-                jscd = "document.getElementsByName('ctl00$MainContent$txtbox_YabanciKNo')[0].value = '" & UserForm1.TextBox1.Value & "';" & _
-                       "document.getElementById('MainContent_chkbox_AdresBilgisi').click();" & _
-                       "document.getElementsByName('ctl00$MainContent$btn_Sorgula')[0].click();"
-                .jsEval jscd
-                Application.Wait Now + TimeValue(WAIT_LONG)
-
-                ad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[1].innerText")
-                If ad = "" Then
-                    ad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-                Else
-                    soyad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-                End If
-                soyad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[3].innerText")
-                tc = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[0].innerText")
-                adres = .jsEval("document.getElementById('MainContent_lbl_AdresBilgi').getElementsByTagName('dl')[4].getElementsByTagName('dd')[0].innerText")
-                olumTar = .jsEval("document.getElementById('MainContent_lbl_EGMId').parentElement.parentElement.innerText")
-                dogTar = .jsEval("document.getElementById('MainContent_lbl_DogTar').parentElement.parentElement.innerText")
-                GoTo FormaYaz
-            End If
-
-            ' Normal hata
-            UserForm1.TextBox1.Text = hataMesaji
-            GoTo HataGoster
+        ' Yabanci uyruklu kontrolu (TC 99 ile basliyorsa)
+        If Left(UserForm1.TextBox1.Value, 2) = "99" Then
+            kps.YabanciKimlikSorgula UserForm1.TextBox1.Value
+            kps.YabanciKisiBilgileriniOku True
+            GoTo FormaYaz
         End If
 
-        Application.Wait Now + TimeValue(WAIT_SHORT)
+        ' Normal hata
+        UserForm1.TextBox1.Text = hataMesaji
+        GoTo HataGoster
+    End If
 
-        ' Kisi bilgilerini oku
-        ad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[1].innerText")
-        soyad = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-        tc = .jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[0].innerText")
-        adres = .jsEval("document.getElementById('MainContent_lbl_AdresBilgi').getElementsByTagName('dl')[4].getElementsByTagName('dd')[0].innerText")
-        olumTar = .jsEval("document.getElementById('MainContent_lbl_OlumTar').parentElement.parentElement.innerText")
-        dogTar = .jsEval("document.getElementById('MainContent_lbl_DogTar').parentElement.parentElement.innerText")
+    Application.Wait Now + TimeValue("0:00:01")
+    kps.KisiBilgileriniOku True
 
 FormaYaz:
-        ' Formu temizle
-        iadeFormTemizle
+    ' Formu temizle
+    iadeFormTemizle
 
-        ' Hasta bilgilerini forma yaz
-        UserForm1.LabelHastaBilgi.Caption = "HASTA BILGILERI" & _
-            Chr(10) & tc & _
-            Chr(10) & ad & Chr(32) & soyad & _
-            Chr(10) & dogTar & _
-            Chr(10) & olumTar
+    ' Hasta bilgilerini forma yaz
+    UserForm1.LabelHastaBilgi.Caption = "HASTA BILGILERI" & _
+        Chr(10) & kps.TC & _
+        Chr(10) & kps.Ad & Chr(32) & kps.Soyad & _
+        Chr(10) & kps.DogumTarihi & _
+        Chr(10) & kps.OlumTarihi
 
-        ' Sayfa ve hucrelere yaz
-        Sayfa8.Range("L4").Value = tc
-        Sayfa8.Range("L3").Value = ad & Chr(32) & soyad
+    ' Sayfa ve hucrelere yaz
+    Sayfa8.Range("L4").Value = kps.TC
+    Sayfa8.Range("L3").Value = kps.Ad & Chr(32) & kps.Soyad
 
-        Application.EnableEvents = False
-        Sheet1.Range("B22").Value = dogTar
-        Sheet1.Range("B23").Value = olumTar
-        Application.EnableEvents = True
+    Application.EnableEvents = False
+    Sheet1.Range("B22").Value = kps.DogumTarihi
+    Sheet1.Range("B23").Value = kps.OlumTarihi
+    Application.EnableEvents = True
 
-        ' Kayit bulunamadi kontrolu
-        jscd = "document.evaluate(""//span[contains(., 'Kayit Bulunamadi.')]"", document).iterateNext().innerText"
-        kayitHata = .jsEval(jscd)
-        .wait
-        If kayitHata Like "*Kayit Bulunamadi.*" Then
-            If Left(UserForm1.TextBox1.Value, 2) = "99" Then
-                .jsEval "document.querySelector('#MainContent_chkbox_AdresBilgisi').click()"
-                .wait
-            End If
-            UserForm1.LabelHastaBilgi.Caption = UserForm1.LabelHastaBilgi.Caption & Chr(10) & kayitHata
+    ' Kayit bulunamadi kontrolu
+    kayitHata = kps.KayitBulunamadiMi()
+    If kayitHata <> "" Then
+        If Left(UserForm1.TextBox1.Value, 2) = "99" Then
+            kps.AdresCheckboxTikla
         End If
-
-    End With
+        UserForm1.LabelHastaBilgi.Caption = UserForm1.LabelHastaBilgi.Caption & Chr(10) & kayitHata
+    End If
     Exit Sub
 
 HataGoster:
