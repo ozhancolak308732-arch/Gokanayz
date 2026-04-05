@@ -114,41 +114,37 @@ Private Sub YabanciKimlikSorgula(chrome As clsBrowser, yabanciNo As String)
 End Sub
 
 '==============================================================================
-' YARDIMCI: Kisi bilgilerini sayfadan oku
+' YARDIMCI: Kisi bilgilerini sayfadan oku (ByRef ile dondurur)
 '==============================================================================
-Private Type KisiBilgileri
-    Ad As String
-    Soyad As String
-    TC As String
-    Adres As String
-    DogumTarihi As String
-    OlumTarihi As String
-End Type
+Private Sub KisiBilgileriniOku(chrome As clsBrowser, _
+                                dogumOlumAlsinMi As Boolean, _
+                                ByRef outAd As String, _
+                                ByRef outSoyad As String, _
+                                ByRef outTC As String, _
+                                ByRef outAdres As String, _
+                                ByRef outDogumTarihi As String, _
+                                ByRef outOlumTarihi As String)
 
-Private Function KisiBilgileriniOku(chrome As clsBrowser, _
-                                     dogumOlumAlsinMi As Boolean) As KisiBilgileri
-    Dim bilgi As KisiBilgileri
-
-    bilgi.Ad = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[1].innerText")
+    outAd = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[1].innerText")
 
     ' Bazi kayitlarda ad bos olabiliyor, index kaydiriliyor
-    If bilgi.Ad = "" Then
-        bilgi.Ad = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
-        bilgi.Soyad = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[3].innerText")
+    If outAd = "" Then
+        outAd = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
+        outSoyad = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[3].innerText")
     Else
-        bilgi.Soyad = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
+        outSoyad = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[2].innerText")
     End If
 
-    bilgi.TC = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[0].innerText")
-    bilgi.Adres = chrome.jsEval("document.getElementById('MainContent_lbl_AdresBilgi').getElementsByTagName('dl')[4].getElementsByTagName('dd')[0].innerText")
+    outTC = chrome.jsEval("document.getElementById('kisibilgileriSol').getElementsByTagName('dd')[0].innerText")
+    outAdres = chrome.jsEval("document.getElementById('MainContent_lbl_AdresBilgi').getElementsByTagName('dl')[4].getElementsByTagName('dd')[0].innerText")
 
+    outDogumTarihi = ""
+    outOlumTarihi = ""
     If dogumOlumAlsinMi Then
-        bilgi.OlumTarihi = chrome.jsEval("document.getElementById('MainContent_lbl_OlumTar').parentElement.parentElement.innerText")
-        bilgi.DogumTarihi = chrome.jsEval("document.getElementById('MainContent_lbl_DogTar').parentElement.parentElement.innerText")
+        outOlumTarihi = chrome.jsEval("document.getElementById('MainContent_lbl_OlumTar').parentElement.parentElement.innerText")
+        outDogumTarihi = chrome.jsEval("document.getElementById('MainContent_lbl_DogTar').parentElement.parentElement.innerText")
     End If
-
-    KisiBilgileriniOku = bilgi
-End Function
+End Sub
 
 '==============================================================================
 ' YARDIMCI: "Kayit Bulunamadi" kontrolu
@@ -190,10 +186,15 @@ End Function
 '==============================================================================
 Sub MernisAdresAl_Chrome()
     Dim chrome As New clsBrowser
-    Dim bilgi As KisiBilgileri
     Dim hataMesaji As String
     Dim tcNo As String
     Dim kayitHata As String
+    Dim ad As String
+    Dim soyad As String
+    Dim tc As String
+    Dim adres As String
+    Dim dogTar As String
+    Dim olumTar As String
 
     ' TC No belirle
     tcNo = SorgulanacakTC(UserForm1.TextBox1.Value)
@@ -223,7 +224,7 @@ Sub MernisAdresAl_Chrome()
         ' Yabanci uyruklu kontrolu (TC 99 ile basliyorsa)
         If Left(tcNo, 2) = "99" Then
             YabanciKimlikSorgula chrome, tcNo
-            bilgi = KisiBilgileriniOku(chrome, False)
+            KisiBilgileriniOku chrome, False, ad, soyad, tc, adres, dogTar, olumTar
             GoTo FormaYaz
         End If
 
@@ -235,16 +236,16 @@ Sub MernisAdresAl_Chrome()
     End If
 
     Application.Wait Now + TimeValue(WAIT_SHORT)
-    bilgi = KisiBilgileriniOku(chrome, False)
+    KisiBilgileriniOku chrome, False, ad, soyad, tc, adres, dogTar, olumTar
 
 FormaYaz:
     ' Sonuclari forma ve sayfaya yaz
-    UserForm1.TextBox1.Text = bilgi.TC
-    Sayfa8.Range("L6").Value = bilgi.TC
-    UserForm1.TextBox2.Text = bilgi.Ad & Chr(32) & bilgi.Soyad
-    Sayfa8.Range("L5").Value = bilgi.Ad & Chr(32) & bilgi.Soyad
-    UserForm1.TextBox3.Text = bilgi.Adres
-    Sayfa8.Range("L7").Value = bilgi.Adres
+    UserForm1.TextBox1.Text = tc
+    Sayfa8.Range("L6").Value = tc
+    UserForm1.TextBox2.Text = ad & Chr(32) & soyad
+    Sayfa8.Range("L5").Value = ad & Chr(32) & soyad
+    UserForm1.TextBox3.Text = adres
+    Sayfa8.Range("L7").Value = adres
 
     ' Kayit bulunamadi kontrolu
     kayitHata = KayitBulunamadiMi(chrome)
@@ -262,12 +263,17 @@ End Sub
 '==============================================================================
 Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
     Dim chrome As New clsBrowser
-    Dim bilgi As KisiBilgileri
     Dim hataMesaji As String
     Dim tcNo As String
     Dim kayitHata As String
     Dim kullaniciAdi As String
     Dim sifre As String
+    Dim ad As String
+    Dim soyad As String
+    Dim tc As String
+    Dim adres As String
+    Dim dogTar As String
+    Dim olumTar As String
 
     ' TC No belirle (sadece B4'ten)
     If Sheet1.Range("B4").Value = "" Then Exit Sub
@@ -299,7 +305,7 @@ Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
         ' Yabanci uyruklu kontrolu
         If Left(UserForm1.TextBox1.Value, 2) = "99" Then
             YabanciKimlikSorgula chrome, UserForm1.TextBox1.Value
-            bilgi = KisiBilgileriniOku(chrome, True)
+            KisiBilgileriniOku chrome, True, ad, soyad, tc, adres, dogTar, olumTar
             GoTo FormaYaz
         End If
 
@@ -310,7 +316,7 @@ Sub MernisHastaDogumTarihiOlumTarihiAl_Chrome()
     End If
 
     Application.Wait Now + TimeValue(WAIT_SHORT)
-    bilgi = KisiBilgileriniOku(chrome, True)
+    KisiBilgileriniOku chrome, True, ad, soyad, tc, adres, dogTar, olumTar
 
 FormaYaz:
     ' Formu temizle
@@ -318,18 +324,18 @@ FormaYaz:
 
     ' Hasta bilgilerini forma yaz
     UserForm1.LabelHastaBilgi.Caption = "HASTA BILGILERI" & _
-        Chr(10) & bilgi.TC & _
-        Chr(10) & bilgi.Ad & Chr(32) & bilgi.Soyad & _
-        Chr(10) & bilgi.DogumTarihi & _
-        Chr(10) & bilgi.OlumTarihi
+        Chr(10) & tc & _
+        Chr(10) & ad & Chr(32) & soyad & _
+        Chr(10) & dogTar & _
+        Chr(10) & olumTar
 
     ' Sayfa ve hucrelere yaz
-    Sayfa8.Range("L4").Value = bilgi.TC
-    Sayfa8.Range("L3").Value = bilgi.Ad & Chr(32) & bilgi.Soyad
+    Sayfa8.Range("L4").Value = tc
+    Sayfa8.Range("L3").Value = ad & Chr(32) & soyad
 
     Application.EnableEvents = False
-    Sheet1.Range("B22").Value = bilgi.DogumTarihi
-    Sheet1.Range("B23").Value = bilgi.OlumTarihi
+    Sheet1.Range("B22").Value = dogTar
+    Sheet1.Range("B23").Value = olumTar
     Application.EnableEvents = True
 
     ' Kayit bulunamadi kontrolu
